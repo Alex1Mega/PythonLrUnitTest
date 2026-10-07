@@ -1,5 +1,5 @@
-from pydantic import BaseModel, ConfigDict, field_validator
-from dataclasses import dataclass
+from pydantic import BaseModel, ConfigDict, field_validator, PrivateAttr
+from dataclasses import dataclass, field
 import unittest
 
 def check_seconds(value):
@@ -26,11 +26,23 @@ def check_multiplier(value):
 
     if value < 0: raise TypeError("Множник повинен бути > 0")
 
+class TimeValidator:
+    def check_seconds(self, value):
+        if isinstance(value, bool) or not isinstance(value, int): raise TypeError("Total seconds повинні бути INT")
+        if value < 0: raise ValueError("Total seconds повинні бути > 0")
+
+    def check_multiplier(self, value):
+        if isinstance(value, bool) or not isinstance(value, int): raise TypeError("Множник повинен бути INT")
+        if value < 0:  raise ValueError("Множник не може бути від'ємним")
+
 class TimeInterval:
-    __slots__ = '_total_seconds'
-    def __init__(self, *, total_seconds = 0):
-        check_seconds(total_seconds)
+    __slots__ = ("_total_seconds", "_validator")
+    def __init__(self, *, total_seconds = 0, validator = None):
+        validator = validator or TimeValidator()
+        validator.check_seconds(total_seconds)
+
         object.__setattr__(self, "_total_seconds", total_seconds)
+        object.__setattr__(self, "_validator", validator)
 
     @property
     def total_seconds(self):
@@ -43,19 +55,19 @@ class TimeInterval:
         if not isinstance(other, TimeInterval): return NotImplemented
 
         result = self.total_seconds + other.total_seconds
-        return TimeInterval(total_seconds=result)
+        return TimeInterval(total_seconds=result, validator=self._validator)
 
     def __sub__(self, other):
         if not isinstance(other, TimeInterval): return NotImplemented
 
         result = self.total_seconds - other.total_seconds
         if result < 0: raise ValueError("Результат не може бути < 0")
-        return TimeInterval(total_seconds=result)
+        return TimeInterval(total_seconds=result, validator=self._validator)
 
     def __mul__(self, multiplier):
-        check_multiplier(multiplier)
+        self._validator.check_multiplier(multiplier)
         result = self.total_seconds * multiplier
-        return TimeInterval(total_seconds=result)
+        return TimeInterval(total_seconds=result, validator=self._validator)
 
     def __str__(self):
         return adapt_time(self.total_seconds)
@@ -67,30 +79,31 @@ class TimeInterval:
 class TimeIntervalPydantic(BaseModel):
     total_seconds: int = 0
     model_config = ConfigDict(frozen=True, strict=True)
-    @field_validator('total_seconds')
-    @classmethod
-    def validate_seconds(cls, value):
-        check_seconds(value)
-        return value
+    _validator: TimeValidator = PrivateAttr()
+
+    def __init__(self, *, total_seconds = 0, validator = None):
+        super().__init__(total_seconds=total_seconds)
+        self._validator = validator or TimeValidator()
+        self._validator.check_seconds(total_seconds)
 
     def __add__(self, other):
         if not isinstance(other, TimeIntervalPydantic): return NotImplemented
 
         result = self.total_seconds + other.total_seconds
-        return TimeIntervalPydantic(total_seconds=result)
+        return TimeIntervalPydantic(total_seconds=result, validator=self._validator)
 
     def __sub__(self, other):
         if not isinstance(other, TimeIntervalPydantic): return NotImplemented
 
         result = self.total_seconds - other.total_seconds
         if result < 0: raise ValueError("Результат не може бути < 0")
-        return TimeIntervalPydantic(total_seconds=result)
+        return TimeIntervalPydantic(total_seconds=result, validator=self._validator)
 
     def __mul__(self, multiplier):
-        check_multiplier(multiplier)
+        self._validator.check_multiplier(multiplier)
 
         result = self.total_seconds * multiplier
-        return TimeIntervalPydantic(total_seconds=result)
+        return TimeIntervalPydantic(total_seconds=result, validator=self._validator)
 
     def __str__(self):
         return adapt_time(self.total_seconds)
@@ -103,27 +116,29 @@ class TimeIntervalPydantic(BaseModel):
 class TimeIntervalDataclass:
     total_seconds: int = 0
 
+    validator: TimeValidator = field(default_factory=TimeValidator, repr=False, compare=False)
+
     def __post_init__(self):
-        check_seconds(self.total_seconds)
+        self.validator.check_seconds(self.total_seconds)
 
     def __add__(self, other):
         if not isinstance(other, TimeIntervalDataclass): return NotImplemented
 
         result = self.total_seconds + other.total_seconds
-        return TimeIntervalDataclass(total_seconds=result)
+        return TimeIntervalDataclass(total_seconds=result, validator=self.validator)
 
     def __sub__(self, other):
         if not isinstance(other, TimeIntervalDataclass): return NotImplemented
 
         result = self.total_seconds - other.total_seconds
         if result < 0: raise ValueError("Результат не може бути < 0")
-        return TimeIntervalDataclass(total_seconds=result)
+        return TimeIntervalDataclass(total_seconds=result, validator=self.validator)
 
     def __mul__(self, multiplier):
-        check_multiplier(multiplier)
+        self.validator.check_multiplier(multiplier)
 
         result = self.total_seconds * multiplier
-        return TimeIntervalDataclass(total_seconds=result)
+        return TimeIntervalDataclass(total_seconds=result, validator=self.validator)
 
     def __str__(self):
         return adapt_time(self.total_seconds)
