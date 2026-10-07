@@ -111,7 +111,7 @@ class TimeIntervalPydantic(BaseModel):
         self._validator.check_seconds(total_seconds)
 
     def __add__(self, other):
-        if type(other) is not TimeInterval: return NotImplemented
+        if type(other) is not TimeIntervalPydantic: return NotImplemented
 
         result = self.total_seconds + other.total_seconds
         logger.debug("[Pydantic]Додавання: %s + %s = %s", self.total_seconds, other.total_seconds, result)
